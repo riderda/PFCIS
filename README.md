@@ -19,9 +19,8 @@ Existing diffusion-based steganography methods heavily rely on text prompts as k
 
 ```text
 PFCIS/
-├── noise_editor.py      # Core symmetric-key governed latent noise editing module
-├── diffusion_stego.py   # Sender-side prompt-free image hiding pipeline
-├── demo.py              # Quickstart demo script
+├── noise_editor.py      # Core symmetric-key governed latent noise editing algorithms
+├── demo.py              # Self-contained evaluation and verification script
 ├── requirements.txt     # Python dependencies
 ├── LICENSE              # Open source license
 └── README.md            # Documentation
@@ -41,7 +40,7 @@ pip install -r requirements.txt
 
 ### 2. Run Demo
 
-To test the forward noise editing strategies:
+To evaluate all four latent noise editing strategies (Noise Shuffling, Stepwise Noising, Noise Flipping, and Dual-Key Shuffling):
 
 ```bash
 python demo.py
@@ -54,15 +53,19 @@ import torch
 from noise_editor import NoiseEditor
 
 editor = NoiseEditor()
+# Standard latent noise tensor in diffusion models (B, C, H, W)
 latent_noise = torch.randn(1, 4, 64, 64)
 
 # 1. Noise Shuffling (Spatial Permutation)
 shuffled = editor.shuffle_tensor(latent_noise, seed=42, ratio=1.0)
 
-# 2. Noise Flipping (Sign Inversion)
+# 2. Stepwise Noising (Diffusion Forward Noising Step)
+noised = editor.add_stepped_noise(latent_noise, seed=42, ratio=0.97)
+
+# 3. Noise Flipping (Sign Inversion)
 flipped = editor.noise_flip(latent_noise, seed=42, ratio=0.02)
 
-# 3. Dual-Key Shuffling (Hierarchical Multi-Seed Permutation)
+# 4. Dual-Key Shuffling Extension (Hierarchical Multi-Seed Permutation)
 dual_shuffled = editor.shuffle_tensor_dual_key(
     latent_noise, seed1=42, seed2=100, ratio1=0.3, ratio2=0.7
 )

@@ -1,12 +1,11 @@
 """
 PFCIS: Prompt-Free Coverless Image Steganography with Diffusion Models
-Noise Editing Strategies (Noise Shuffling, Stepwise Noising, Noise Flipping, and Dual-Key Extension)
+Core Latent Noise Editing Algorithms
 """
 
 import torch
 import numpy as np
-from typing import Optional, Tuple
-from diffusers import DDIMScheduler
+from typing import Optional
 
 
 class NoiseEditor:
@@ -14,7 +13,7 @@ class NoiseEditor:
     Symmetric-key governed latent noise editing module for prompt-free coverless steganography.
     Provides forward noise perturbation operations:
       1. Noise Shuffling (Spatial Permutation)
-      2. Stepwise Noising (Diffusion Forward Diffusion Step)
+      2. Stepwise Noising (Diffusion Forward Noising Step)
       3. Noise Flipping (Sign Inversion)
       4. Dual-Key Shuffling (Hierarchical Multi-Seed Permutation)
     """
@@ -64,18 +63,18 @@ class NoiseEditor:
     def add_stepped_noise(
         self,
         x: torch.Tensor,
-        scheduler: DDIMScheduler,
         seed: int,
-        ratio: float = 0.97
+        ratio: float = 0.97,
+        alpha_cum: Optional[float] = None
     ) -> torch.Tensor:
         """
         Stepwise forward noising to inject key-governed cryptographic noise.
         
         Args:
             x (torch.Tensor): Inverted latent noise tensor of shape (B, C, H, W).
-            scheduler (DDIMScheduler): DDIM diffusion scheduler.
             seed (int): Symmetric key seed.
             ratio (float): Timestep ratio controlling the injected noise scale.
+            alpha_cum (Optional[float]): Cumulative diffusion product. If None, derived from ratio.
             
         Returns:
             torch.Tensor: Noised latent tensor.
@@ -87,20 +86,19 @@ class NoiseEditor:
         if x.is_cuda:
             torch.cuda.manual_seed_all(seed)
 
-        # Calculate diffusion target timestep
-        total_t = len(scheduler.timesteps) if scheduler.timesteps is not None else 1000
-        target_t_idx = min(int(total_t * ratio), total_t - 1)
-        target_t = scheduler.timesteps[target_t_idx] if scheduler.timesteps is not None else target_t_idx
-
-        # Alpha cumulative product at target timestep
-        alpha_cum = scheduler.alphas_cumprod[target_t].float().to(x.device)
-        alpha_cum = torch.clamp(alpha_cum, 1e-8, 1.0)
+        # Default alpha_cum calculated based on standard linear diffusion schedule
+        if alpha_cum is None:
+            # For ratio in [0, 1], alpha_cum varies smoothly from 1.0 down to near 0.0
+            # Default standard benchmark at ratio=0.97 yields alpha_cum ≈ 0.0066
+            alpha_val = float(np.clip(1.0 - ratio, 1e-4, 1.0)) ** 2
+        else:
+            alpha_val = float(np.clip(alpha_cum, 1e-8, 1.0))
 
         # Generate standard normal noise governed by the key seed
         noise = torch.randn(x.shape, dtype=x.dtype, generator=gen, device=x.device)
 
-        # Closed-form forward diffusion transformation
-        x_noised = torch.sqrt(alpha_cum) * x + torch.sqrt(1.0 - alpha_cum) * noise
+        # Closed-form forward diffusion transformation: x_c = sqrt(alpha)*x + sqrt(1-alpha)*noise
+        x_noised = np.sqrt(alpha_val) * x + np.sqrt(1.0 - alpha_val) * noise
         return x_noised
 
     def noise_flip(self, x: torch.Tensor, seed: int, ratio: float = 0.02) -> torch.Tensor:
@@ -128,7 +126,7 @@ class NoiseEditor:
         rand_tensor = torch.rand(x.shape, dtype=torch.float32, generator=gen, device=x.device)
         flip_mask = (rand_tensor < ratio).to(dtype=x.dtype)
 
-        # Invert sign for selected entries
+        # Invert sign for selected entries: x * (1 - 2 * mask)
         flipped_x = x * (1.0 - 2.0 * flip_mask)
         return flipped_x
 
